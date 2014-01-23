@@ -13,6 +13,16 @@ setlocation
 
 */
 
+/*
+
+ECE Senior Design 2014 for Oregon State University
+Team MOSFET:
+Russell Barnes
+Paul Burris
+Nick Voigt
+
+*/
+
 import (
     "fmt"
     //"html/template"
@@ -33,23 +43,11 @@ type Location struct {
 func init() {
 	http.HandleFunc("/getlocation", GetLocation)
     http.HandleFunc("/setlocation", SetLocation)
-    http.HandleFunc("/AddClient", AddClient)
-    http.HandleFunc("/UpdateClient", UpdateClient)
+    http.HandleFunc("/addclient", AddClient)
+    http.HandleFunc("/updateclient", UpdateClient)
 }
 
 func SetLocation(w http.ResponseWriter, r *http.Request) {
-	
-	var rx map[string]interface{}
-	byt := []byte(`{"num":6.13,"strs":["a","b"]}`)
-	
-	if err := json.Unmarshal(byt, &rx); err != nil {
-		fmt.Fprint(w, "Oops - something went wrong with the JSON. \n")
-	} else {
-		fmt.Fprint(w, "This is setlocation.\n", "The received location is:\n\n", 
-			"x: \t\t", r.FormValue("x"), "\n",
-			"y: \t\t", r.FormValue("y"), "\n",
-			"clientid: \t", r.FormValue("clientid"))
-	}
 	
 	// Add points to datastore for user
 	newlocation := &Location{
@@ -82,18 +80,22 @@ func GetLocation(w http.ResponseWriter, r *http.Request) {
 	
 	// Fairly flat DB structure - can be optimized in the future by using clientids as parent entities
 	query := datastore.NewQuery("User").Ancestor(ParentKey(c)).Filter("Clientid =", clientid).Order("-Date")
-	users := make([]Location, 0, 10)
+	users := make([]Location, 0, 10)	// Ten most recent locations returned
 	if _, err := query.GetAll(c, &users); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 	fmt.Fprint(w, "Users:\n", users) //users[0].y)
 	
-	/*if err := json.Marshal(byt, &rx); err != nil {
+	// Respond to the HTML request with JSON-formatted location data
+	if userbytes, err := json.Marshal(users); err != nil {
 		fmt.Fprint(w, "Oops - something went wrong with the JSON. \n")
+		//fmt.Fprint(w, "{error: 1}")
+		return
 	} else {
-		fmt.Fprint(w, "This is getlocation.  Your device's loc:", rx)
-	}*/
+		fmt.Fprint(w, "\n\nJSON'd data: \n", string(userbytes))
+		return
+	}
 }
 
 func AddClient(w http.ResponseWriter, r *http.Request) {
