@@ -80,7 +80,7 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	    twilio := gotwilio.NewTwilioClient(accountSid, authToken)
 
 	    message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
-	    twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "")
+	    twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "", c)
 		
 		c.Infof("Twilio request finished.\nResponse: ", twiresponse, "\nException: ", twiexception, "\nError: ", twierror)
 	}
