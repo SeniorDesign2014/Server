@@ -1,5 +1,9 @@
 .DS_STORE
 
+# Ignore dependencies and credentials
+gotwilio/*
+twilioaccount/*
+
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
 *.a

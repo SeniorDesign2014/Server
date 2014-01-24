@@ -25,12 +25,13 @@ Nick Voigt
 
 import (
     "fmt"
-    //"html/template"
     "net/http"
 	"encoding/json"
 	"appengine"
     "appengine/datastore"
 	"time"
+	"gotwilio"
+	"twilioaccount"	// Don't open-source the Twilio account credentials
 )
 
 type Location struct {
@@ -39,6 +40,11 @@ type Location struct {
 	Clientid string
 	Date time.Time
 }
+
+/*type User struct {
+	Appid string
+	Clientidkey *datastore.Key
+}*/
 
 func init() {
 	http.HandleFunc("/getlocation", GetLocation)
@@ -63,8 +69,21 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	key := datastore.NewIncompleteKey(c, "User", ParentKey(c))
     if _, err := datastore.Put(c, key, newlocation); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
     }
+	
+	// Stolen == 1? Send text and/or push notification - "open app for more details"
+	if r.FormValue("stolen") == "1" {
+		
+		// Provide your own Twilio credentials and phone numbers (twilio.com)
+		accountSid, authToken := twilioaccount.GetTwilioAccount()
+		from, to := twilioaccount.GetTwilioNumbers()
+	    twilio := gotwilio.NewTwilioClient(accountSid, authToken)
+
+	    message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
+	    twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "")
+		
+		c.Infof("Twilio request finished.\nResponse: ", twiresponse, "\nException: ", twiexception, "\nError: ", twierror)
+	}
 }
 
 func GetLocation(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +118,7 @@ func GetLocation(w http.ResponseWriter, r *http.Request) {
 }
 
 func AddClient(w http.ResponseWriter, r *http.Request) {
-
+	
 }
 
 func UpdateClient(w http.ResponseWriter, r *http.Request) {
