@@ -51,6 +51,7 @@ func init() {
     http.HandleFunc("/setlocation", SetLocation)
     http.HandleFunc("/addclient", AddClient)
     http.HandleFunc("/updateclient", UpdateClient)
+	http.HandleFunc("/twiliorequest", TwilioRequest)
 }
 
 func SetLocation(w http.ResponseWriter, r *http.Request) {
@@ -98,13 +99,13 @@ func GetLocation(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Fairly flat DB structure - can be optimized in the future by using clientids as parent entities
-	query := datastore.NewQuery("User").Ancestor(ParentKey(c)).Filter("Clientid =", clientid).Order("-Date")
+	query := datastore.NewQuery("User").Ancestor(ParentKey(c)).Filter("Clientid =", clientid).Order("-Date").Limit(10)
 	users := make([]Location, 0, 10)	// Ten most recent locations returned
 	if _, err := query.GetAll(c, &users); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-	fmt.Fprint(w, "Users:\n", users) //users[0].y)
+	//fmt.Fprint(w, "Users:\n", users) //users[0].y)
 	
 	// Respond to the HTML request with JSON-formatted location data
 	if userbytes, err := json.Marshal(users); err != nil {
@@ -112,7 +113,7 @@ func GetLocation(w http.ResponseWriter, r *http.Request) {
 		//fmt.Fprint(w, "{error: 1}")
 		return
 	} else {
-		fmt.Fprint(w, "\n\nJSON'd data: \n", string(userbytes))
+		fmt.Fprint(w, string(userbytes))	// Print locations in date-descending order as a JSON array
 		return
 	}
 }
@@ -124,6 +125,40 @@ func AddClient(w http.ResponseWriter, r *http.Request) {
 func UpdateClient(w http.ResponseWriter, r *http.Request) {
 
 }
+
+func TwilioRequest(w http.ResponseWriter, r *http.Request) {
+	
+	c := appengine.NewContext(r)
+	
+	// Retrieve the body of the message
+	
+	// Fairly flat DB structure - can be optimized in the future by using clientids as parent entities
+	
+	
+	c.Infof("Twilio response received.")
+	
+	/* Sample request:
+	/twiliorequest?
+	AccountSid=###...
+	&MessageSid=###...
+	&Body=BODY_OF_MESSAGE
+	&ToZip=97###
+	&ToCity=PORTLAND
+	&FromState=OR
+	&ToState=OR
+	&SmsSid=###...
+	&To=%2B1##########
+	&ToCountry=US
+	&FromCountry=US
+	&SmsMessageSid=###...
+	&ApiVersion=2010-04-01
+	&FromCity=PORTLAND
+	&SmsStatus=received
+	&NumMedia=0
+	&From=%2B1##########
+	&FromZip=97###
+	*/
+	}
 
 // Get the parent key for the particular Location entity group
 func ParentKey(c appengine.Context) *datastore.Key {
