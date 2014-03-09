@@ -17,7 +17,7 @@ updateclient
 	Save notification settings for the client.  Choose from email, sms and/or push methods.
 
 Message format for texting Twilio phone number:
-{"clientid":"#","x":"#.#####","y":"#.#####","stolen":"[0/1]"}
+{"clientid":"########","x":"####","xm":"##.####","y":"###","ym":"##.####","vel":"#.###","deg":"##.##","stolen":"#"}
 For complete URL request format, see function twiliorequest
 
 */
@@ -39,6 +39,7 @@ import (
 	"appengine"
     "appengine/datastore"
 	"time"
+	"strconv"
 	"appengine/mail"
 	"gotwilio"
 	"twilioaccount"	// Don't open-source the Twilio account credentials
@@ -116,7 +117,7 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	
 	// Get the client's theft notification preferences
 	clientprefs := _GetClientAlertPrefs(c, w, r, clientid); if clientprefs.Address == "error" {
-		c.Infof("Client preferences could not be found for clientid: ", clientid)
+		c.Errorf("Client preferences could not be found for clientid: ", clientid)
 		return
 	}
 	
@@ -127,7 +128,9 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	if clientprefs.Sms {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
-	
+	if clientprefs.Push {
+		_SendPush(c, w, r)
+	}
 }
 
 func GetLocation(w http.ResponseWriter, r *http.Request) {
@@ -230,25 +233,40 @@ or
 
 func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	
+	/* 
+		Message format for texting Twilio phone number:
+		{"clientid":"########","x":"####","xm":"##.####","y":"###","ym":"##.####","vel":"#.###","deg":"##.##","stolen":"#"}
+	*/
+	
 	c := appengine.NewContext(r)
 	
 	// Retrieve the body of the message
 	
 	message := r.FormValue("Body")
-	
 	if message != "" {
 		c.Infof("Twilio SMS: ", message)
 	} else {
-		c.Infof("message is empty")
-		
+		c.Errorf("message is empty")
+		return
 	}
 	
 	messagedata := []byte(message)
 	
 	var jsonmap map[string]interface{}
-	
 	if err := json.Unmarshal(messagedata, &jsonmap); err != nil {
-		c.Infof("Error parsing JSON from GSM: ", messagedata)
+		c.Errorf("Error parsing JSON from GSM: ", messagedata)
+		return
+	}
+	
+	
+	// Convert degree coordinates to decimal coordinates
+	x_str := _ConvertCoordinate(jsonmap["x"].(string), jsonmap["xm"].(string))
+	y_str := _ConvertCoordinate(jsonmap["y"].(string), jsonmap["ym"].(string))
+	if x_str == "error" || y_str == "error" {
+		c.Errorf("String(s) not converted to or from float: ", 
+			jsonmap["x"].(string), " ", jsonmap["xm"].(string), " ", 
+			jsonmap["y"].(string), " ", jsonmap["ym"].(string))
+		return
 	}
 	
 	/*x := jsonmap["x"].(float64)
@@ -258,11 +276,17 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	c.Infof("x: ", x, "y: ", y, "client ID: ", clientid)
 	*/
 	
+	// Save the new set of coordinates in the database
+	
+	clientid := jsonmap["clientid"].(string)
+	if clientid == "" {
+		clientid = "00000000"	// This will only occur in the development version
+	}
 	
 	newlocation := &Location{
-		X: jsonmap["x"].(string), 
-		Y: jsonmap["y"].(string),
-		Clientid: jsonmap["clientid"].(string),
+		X: x_str, 
+		Y: y_str,
+		Clientid: clientid,
 		Date: time.Now(),
 	}
 	
@@ -272,18 +296,22 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
         http.Error(w, err.Error(), http.StatusInternalServerError)
     }
 	
-	// Stolen == 1? Send text and/or push notification - "open app for more details"
-	if jsonmap["stolen"].(string) == "1" {
-		
-		// Provide your own Twilio credentials and phone numbers (twilio.com)
-		accountSid, authToken := twilioaccount.GetTwilioAccount()
-		from, to := twilioaccount.GetTwilioNumbers()
-	    twilio := gotwilio.NewTwilioClient(accountSid, authToken)
-
-	    message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
-	    twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "", c)
-		
-		c.Infof("Twilio request finished.\nResponse: ", twiresponse, "\nException: ", twiexception, "\nError: ", twierror)
+	// Get the client's theft notification preferences
+	clientprefs := _GetClientAlertPrefs(c, w, r, clientid)
+	if clientprefs.Address == "error" {
+		c.Errorf("Client preferences could not be found for clientid: ", clientid)
+		return
+	}
+	
+	// Send text, email and/or push notification - "open app to follow"
+	if clientprefs.Email {
+		_SendEmail(c, w, r, clientprefs.Address);	
+	}
+	if clientprefs.Sms {
+		_SendSMS(c, w, r, clientprefs.Phonenumber);	
+	}
+	if clientprefs.Push {
+		_SendPush(c, w, r)
 	}
 	
 	
@@ -308,15 +336,48 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	&From=%2B1##########
 	&FromZip=97###
 	*/
+	
+	/* SMS message format:
+	{"clientid":"########",
+	"x":"####",
+	"xm":"##.####",
+	"y":"###",
+	"ym":"##.####",
+	"vel":"#.###",
+	"deg":"##.##",
+	"stolen":"#"}
+	*/
 }
 
 
 
 /* 
 	HELPER FUNCTIONS 
-*/ 
+*/
 
 
+func _ConvertCoordinate(deg string, min string) (string) {
+	// Convert degree coordinates to decimal coordinates
+	var coord     float64
+	var coord_min float64
+	var err1 error
+	var err2 error
+	
+	coord, err1     = strconv.ParseFloat(deg, 64)
+	coord_min, err2 = strconv.ParseFloat(min, 64)
+	if err1 != nil || err2 != nil {
+		return "error"
+	}
+	
+	if coord >= 0 {
+		coord += (coord_min / 60)
+	} else {
+		coord -= (coord_min / 60)
+	}
+	
+	coord_str := strconv.FormatFloat(coord, 'f', 5, 64)
+	return coord_str
+}
 
 func _GetClientAlertPrefs(c appengine.Context, w http.ResponseWriter, r *http.Request, clientid string) (AlertMethod) {
 	
@@ -335,8 +396,13 @@ func _GetClientAlertPrefs(c appengine.Context, w http.ResponseWriter, r *http.Re
 
 func _SendEmail(c appengine.Context, w http.ResponseWriter, r *http.Request, address string) {
 	
+	if address == "" {
+		c.Errorf("Client email address not set")
+		return
+	}
+	
     msg := &mail.Message{
-            Sender:  "Bike Theft Tracker <alert@bikethefttracker.com>",
+            Sender:  "Bike Theft Tracker <alert@bikethefttracker.appspotmail.com>",
             To:      []string{address},
             Subject: "Your Bike Has Been Stolen",
             Body:    fmt.Sprintf(emailMessage),
@@ -350,7 +416,6 @@ func _SendEmail(c appengine.Context, w http.ResponseWriter, r *http.Request, add
 const emailMessage = `
 So sorry: your bike has been stolen.
 
-
 `
 
 func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phonenumber string) {
@@ -363,7 +428,7 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 	if (phonenumber != "") {
 		to = phonenumber
 	}
-
+	
     message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
     twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "", c)
 	
