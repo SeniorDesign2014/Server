@@ -64,10 +64,11 @@ type AlertMethod struct {
 	Date time.Time
 }
 
-/*type User struct {
-	Appid string
-	Clientidkey *datastore.Key
-}*/
+type Pushdevice struct {
+	Pushtoken string
+	Clientid string
+	Date time.Time
+}
 
 func init() {
 	http.HandleFunc("/getlocation", GetLocation)
@@ -75,6 +76,7 @@ func init() {
     http.HandleFunc("/addclient", AddClient)
     http.HandleFunc("/updateclient", UpdateClient)
 	http.HandleFunc("/twiliorequest", TwilioRequest)
+	http.HandleFunc("/setpushtoken", SetPushToken)
 }
 
 
@@ -350,11 +352,75 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 
+func SetPushToken(w http.ResponseWriter, r *http.Request) {
+	
+	c := appengine.NewContext(r)
+	
+	clientid := r.FormValue("clientid")
+	if clientid == "" {
+		clientid = "00000000"
+	}
+	
+	// Create notification preferences for client
+	newPushdevice := &Pushdevice{
+		Pushtoken: r.FormValue("pushtoken"),
+		
+		Clientid: clientid,
+		Date: time.Now(),
+	}
+	
+	if newPushdevice.Pushtoken == "" {
+		c.Errorf("Empty push token for clientid: ", clientid)
+	}
+	
+	// Delete all previous pushdevices for this client
+	query := datastore.NewQuery("Pushdevice").Ancestor(ParentKey(c)).Filter("Clientid =", newPushdevice.Clientid)
+	for t := query.Run(c); ; {
+		var x Pushdevice
+		key, err := t.Next(&x)
+		if err == datastore.Done {
+			c.Infof("Preferences deleted for client ", newPushdevice.Clientid)
+			break
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = datastore.Delete(c, key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	
+	// Add newAlertMethod notification preferences to database
+	
+	// format: datastore.NewIncompleteKey(context, "subkind", *parentKey)
+	key := datastore.NewIncompleteKey(c, "Pushdevice", ParentKey(c))
+    if _, err := datastore.Put(c, key, newPushdevice); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
+}
+
 
 /* 
 	HELPER FUNCTIONS 
 */
 
+func _GetPushdevice(c appengine.Context, w http.ResponseWriter, r *http.Request, clientid string) (Pushdevice) {
+	
+	// Retrieve the data of the client requested by the app
+	
+	query := datastore.NewQuery("Pushdevice").Ancestor(ParentKey(c)).Filter("Clientid =", clientid).Order("-Date").Limit(1)
+	pushdevices := make([]Pushdevice, 0, 1)	// Most recent alert preferences struct is returned
+	if _, err := query.GetAll(c, &pushdevices); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+		pushdevices[0].Pushtoken = "error"
+        return pushdevices[0]
+    }
+	
+	return pushdevices[0]
+}
 
 func _ConvertCoordinate(deg string, min string) (string) {
 	// Convert degree coordinates to decimal coordinates
@@ -435,7 +501,7 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 	c.Infof("Twilio request finished.\nResponse: ", twiresponse, "\nException: ", twiexception, "\nError: ", twierror)
 }
 
-func _SendPush(c appengine.Context, w http.ResponseWriter, r *http.Request) {
+func _SendPush(c appengine.Context, clientid string) {
 	
 }
 
