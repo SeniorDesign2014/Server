@@ -42,7 +42,9 @@ import (
 	"strconv"
 	"appengine/mail"
 	"gotwilio"
+	"apns"
 	"twilioaccount"	// Don't open-source the Twilio account credentials
+	"appleaccount"	// Don't open-source the Apple push notification credentials
 )
 
 type Location struct {
@@ -131,7 +133,7 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
 	if clientprefs.Push {
-		_SendPush(c, w, r)
+		//_SendPush(c, clientid)
 	}
 }
 
@@ -178,15 +180,15 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 	newAlertMethod := &AlertMethod{
 		Email: r.FormValue("email") == "1",
 		Sms: r.FormValue("sms") == "1",
-		Push: r.FormValue("email") == "1",
+		Push: r.FormValue("push") == "1",
 		
 		Clientid: r.FormValue("clientid"),
 		Date: time.Now(),
 	}
-	if (newAlertMethod.Email) {
+	if (newAlertMethod.Email || r.FormValue("address") != "") {
 		newAlertMethod.Address = r.FormValue("address")
 	}
-	if (newAlertMethod.Sms) {
+	if (newAlertMethod.Sms || r.FormValue("phonenumber") != "") {
 		newAlertMethod.Phonenumber = r.FormValue("phonenumber")
 	}
 	
@@ -221,6 +223,8 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 	key := datastore.NewIncompleteKey(c, "AlertMethod", ParentKey(c))
     if _, err := datastore.Put(c, key, newAlertMethod); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("Database error adding preferences for client: ", newAlertMethod.Clientid)
+		return
     }
 }
 
@@ -313,7 +317,13 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
 	if clientprefs.Push {
-		_SendPush(c, w, r)
+		// Add push registration to Apple's servers
+		pushdata := _GetPushdevice(c, w, r, clientid)
+		if pushdata.Pushtoken == "error" {
+			c.Errorf("Push data not found for client: ", clientid)
+			return
+		}
+		_SendPush(c, pushdata.Pushtoken)
 	}
 	
 	
@@ -399,7 +409,11 @@ func SetPushToken(w http.ResponseWriter, r *http.Request) {
 	key := datastore.NewIncompleteKey(c, "Pushdevice", ParentKey(c))
     if _, err := datastore.Put(c, key, newPushdevice); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("Database error while adding pushdevice: ", err.Error())
+		return
     }
+	
+	//DEBUG _SendPush(c, newPushdevice.Pushtoken)
 }
 
 
@@ -415,34 +429,13 @@ func _GetPushdevice(c appengine.Context, w http.ResponseWriter, r *http.Request,
 	pushdevices := make([]Pushdevice, 0, 1)	// Most recent alert preferences struct is returned
 	if _, err := query.GetAll(c, &pushdevices); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
-		pushdevices[0].Pushtoken = "error"
-        return pushdevices[0]
+		c.Errorf("Database error: ", err.Error())
+		nulldevice := Pushdevice{}
+		nulldevice.Pushtoken = "error"
+        return nulldevice
     }
 	
 	return pushdevices[0]
-}
-
-func _ConvertCoordinate(deg string, min string) (string) {
-	// Convert degree coordinates to decimal coordinates
-	var coord     float64
-	var coord_min float64
-	var err1 error
-	var err2 error
-	
-	coord, err1     = strconv.ParseFloat(deg, 64)
-	coord_min, err2 = strconv.ParseFloat(min, 64)
-	if err1 != nil || err2 != nil {
-		return "error"
-	}
-	
-	if coord >= 0 {
-		coord += (coord_min / 60)
-	} else {
-		coord -= (coord_min / 60)
-	}
-	
-	coord_str := strconv.FormatFloat(coord, 'f', 5, 64)
-	return coord_str
 }
 
 func _GetClientAlertPrefs(c appengine.Context, w http.ResponseWriter, r *http.Request, clientid string) (AlertMethod) {
@@ -453,8 +446,10 @@ func _GetClientAlertPrefs(c appengine.Context, w http.ResponseWriter, r *http.Re
 	alertmethods := make([]AlertMethod, 0, 1)	// Most recent alert preferences struct is returned
 	if _, err := query.GetAll(c, &alertmethods); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
-		alertmethods[0].Address = "error"
-        return alertmethods[0]
+		c.Errorf("Database error: ", err.Error())
+		nullmethods := AlertMethod{}
+		nullmethods.Address = "error"
+        return nullmethods
     }
 	
 	return alertmethods[0]
@@ -501,8 +496,57 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 	c.Infof("Twilio request finished.\nResponse: ", twiresponse, "\nException: ", twiexception, "\nError: ", twierror)
 }
 
-func _SendPush(c appengine.Context, clientid string) {
+func _SendPush(c appengine.Context, pushtoken string) {
+	//c.Infof("Send Push")
+	//c.Infof("Pushtoken: ", pushtoken)
 	
+	//time.Sleep(1*time.Second)
+	
+	payload := apns.NewPayload()
+	payload.Alert = "Hello, world!"
+	payload.Badge = 42
+	//payload.Sound = "bingbong.aiff"
+
+	pn := apns.NewPushNotification()
+	pn.DeviceToken = pushtoken
+	pn.AddPayload(payload)
+
+	pushkey, cert := appleaccount.GetKeyAndCert()
+	client := apns.BareClient("gateway.sandbox.push.apple.com:2195", cert, pushkey)
+	resp := client.Send(c, pn)
+
+	alert, _ := pn.PayloadString()
+	if alert != "" {
+		c.Infof("Alert: ", alert)
+	}
+	if resp.Error != nil {
+		c.Errorf("Error: ", resp.Error)
+	} else {
+		c.Infof("Success: ", resp.Success)
+	}
+}
+
+func _ConvertCoordinate(deg string, min string) (string) {
+	// Convert degree coordinates to decimal coordinates
+	var coord     float64
+	var coord_min float64
+	var err1 error
+	var err2 error
+	
+	coord, err1     = strconv.ParseFloat(deg, 64)
+	coord_min, err2 = strconv.ParseFloat(min, 64)
+	if err1 != nil || err2 != nil {
+		return "error"
+	}
+	
+	if coord >= 0 {
+		coord += (coord_min / 60)
+	} else {
+		coord -= (coord_min / 60)
+	}
+	
+	coord_str := strconv.FormatFloat(coord, 'f', 5, 64)
+	return coord_str
 }
 
 // Get the parent key for the particular Location entity group

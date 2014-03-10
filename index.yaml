@@ -17,14 +17,14 @@ indexes:
   - name: Date
     direction: desc
 
-- kind: AlertMethodz
+- kind: Location
   ancestor: yes
   properties:
   - name: Clientid
   - name: Date
     direction: desc
 
-- kind: Location
+- kind: Pushdevice
   ancestor: yes
   properties:
   - name: Clientid
