@@ -16,6 +16,10 @@ updateclient
 	E.g. <server>/updateclient?clientid=1&email=1&address=abc@123.com&sms=0&push=1
 	Save notification settings for the client.  Choose from email, sms and/or push methods.
 
+setpushtoken
+<server>/setpushtoken?clientid=########&pushtoken=<token_here>
+	Save push token for the client's iOS app.  This is used to send push notifications later.
+
 Message format for texting Twilio phone number:
 {"clientid":"########","x":"####","xm":"##.####","y":"###","ym":"##.####","vel":"#.###","deg":"##.##","stolen":"#"}
 For complete URL request format, see function twiliorequest
@@ -133,7 +137,13 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
 	if clientprefs.Push {
-		//_SendPush(c, clientid)
+		// Send push notification
+		pushdata := _GetPushdevice(c, w, r, clientid)
+		if pushdata.Pushtoken == "error" {
+			c.Errorf("Push data not found for client: ", clientid)
+			return
+		}
+		_SendPush(c, pushdata.Pushtoken)
 	}
 }
 
@@ -317,7 +327,7 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
 	if clientprefs.Push {
-		// Add push registration to Apple's servers
+		// Send push notification
 		pushdata := _GetPushdevice(c, w, r, clientid)
 		if pushdata.Pushtoken == "error" {
 			c.Errorf("Push data not found for client: ", clientid)
@@ -497,10 +507,6 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 }
 
 func _SendPush(c appengine.Context, pushtoken string) {
-	//c.Infof("Send Push")
-	//c.Infof("Pushtoken: ", pushtoken)
-	
-	//time.Sleep(1*time.Second)
 	
 	payload := apns.NewPayload()
 	payload.Alert = "Hello, world!"
