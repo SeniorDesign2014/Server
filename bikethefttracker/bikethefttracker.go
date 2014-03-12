@@ -517,7 +517,7 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 func _SendPush(c appengine.Context, pushtoken string) {
 	
 	payload := apns.NewPayload()
-	payload.Alert = "Hello, world!"
+	payload.Alert = "Your bike has been stolen!"
 	payload.Badge = 42
 	//payload.Sound = "bingbong.aiff"
 
@@ -530,13 +530,13 @@ func _SendPush(c appengine.Context, pushtoken string) {
 	resp := client.Send(c, pn)
 
 	alert, _ := pn.PayloadString()
-	if alert != "" {
+	if alert != `{"aps":{"alert":"Your bike has been stolen!","badge":42}}` {
 		c.Infof("APNS Alert: ", alert)
 	}
 	if resp.Error != nil {
 		c.Errorf("APNS Error: ", resp.Error)
-	} else {
-		c.Infof("APNS Success: ", resp.Success)
+	} else if resp.Success {
+		c.Infof("APNS push notification success.")
 	}
 }
 
