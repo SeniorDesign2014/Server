@@ -504,14 +504,9 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 	from, to := twilioaccount.GetTwilioNumbers()
     twilio := gotwilio.NewTwilioClient(accountSid, authToken)
 	
-	c.Infof("to 1: ", to) //debug
-	c.Infof("phonenumber: ", phonenumber)
-	
 	if (phonenumber != "") {
 		to = phonenumber
 	}
-	c.Infof("to 2: ", to)
-	c.Infof("phonenumber: ", phonenumber)
 	
     message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
     twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "", c)
@@ -536,12 +531,12 @@ func _SendPush(c appengine.Context, pushtoken string) {
 
 	alert, _ := pn.PayloadString()
 	if alert != "" {
-		c.Infof("Alert: ", alert)
+		c.Infof("APNS Alert: ", alert)
 	}
 	if resp.Error != nil {
-		c.Errorf("Error: ", resp.Error)
+		c.Errorf("APNS Error: ", resp.Error)
 	} else {
-		c.Infof("Success: ", resp.Success)
+		c.Infof("APNS Success: ", resp.Success)
 	}
 }
 
