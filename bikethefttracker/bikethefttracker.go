@@ -115,6 +115,7 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
     if _, err := datastore.Put(c, key, newlocation); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
     }
 	
 	if r.FormValue("stolen") != "1" {
@@ -130,10 +131,10 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Send text, email and/or push notification - "open app to follow"
-	if clientprefs.Email {
+	if clientprefs.Email && clientprefs.Address != "" {
 		_SendEmail(c, w, r, clientprefs.Address);	
 	}
-	if clientprefs.Sms {
+	if clientprefs.Sms && clientprefs.Phonenumber != "" {
 		_SendSMS(c, w, r, clientprefs.Phonenumber);	
 	}
 	if clientprefs.Push {
@@ -141,9 +142,9 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 		pushdata := _GetPushdevice(c, w, r, clientid)
 		if pushdata.Pushtoken == "error" {
 			c.Errorf("Push data not found for client: ", clientid)
-			return
+		} else {
+			_SendPush(c, pushdata.Pushtoken)
 		}
-		_SendPush(c, pushdata.Pushtoken)
 	}
 }
 
@@ -266,6 +267,12 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
+	// Account for bug in firmware/GSM module
+	if message[0] != '{' && message[len(message) - 1] != '}' {
+		c.Infof("Braces added for command.")
+		message = "{" + message + "}"
+	}
+	
 	messagedata := []byte(message)
 	
 	var jsonmap map[string]interface{}
@@ -310,6 +317,7 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
     if _, err := datastore.Put(c, key, newlocation); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
     }
 	
 	// Get the client's theft notification preferences
@@ -496,9 +504,14 @@ func _SendSMS(c appengine.Context, w http.ResponseWriter, r *http.Request, phone
 	from, to := twilioaccount.GetTwilioNumbers()
     twilio := gotwilio.NewTwilioClient(accountSid, authToken)
 	
+	c.Infof("to 1: ", to) //debug
+	c.Infof("phonenumber: ", phonenumber)
+	
 	if (phonenumber != "") {
 		to = phonenumber
 	}
+	c.Infof("to 2: ", to)
+	c.Infof("phonenumber: ", phonenumber)
 	
     message := "Your bicycle was just stolen - open the Bike Theft Tracker app to follow"
     twiresponse, twiexception, twierror := twilio.SendSMS(from, to, message, "", "", c)
