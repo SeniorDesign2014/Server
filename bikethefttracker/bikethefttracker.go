@@ -201,6 +201,9 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 	}
 	if (newAlertMethod.Sms || r.FormValue("phonenumber") != "") {
 		newAlertMethod.Phonenumber = r.FormValue("phonenumber")
+		if newAlertMethod.Phonenumber != "" && newAlertMethod.Phonenumber[0] != '1' {
+			newAlertMethod.Phonenumber = "1" + newAlertMethod.Phonenumber
+		}
 	}
 	
 	if newAlertMethod.Clientid == "" {
@@ -493,7 +496,7 @@ func _SendEmail(c appengine.Context, w http.ResponseWriter, r *http.Request, add
 
 // Email message to send client
 const emailMessage = `
-So sorry: your bike has been stolen.
+Your bicycle was just stolen.  Open the Bike Theft Tracker app on your iPhone to see its latest location.
 
 `
 
