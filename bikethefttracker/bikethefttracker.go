@@ -521,7 +521,7 @@ func _SendPush(c appengine.Context, pushtoken string) {
 	
 	payload := apns.NewPayload()
 	payload.Alert = "Your bike has been stolen!"
-	payload.Badge = 42
+	payload.Badge = 1
 	//payload.Sound = "bingbong.aiff"
 
 	pn := apns.NewPushNotification()
