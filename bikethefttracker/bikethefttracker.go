@@ -196,10 +196,10 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 		Clientid: r.FormValue("clientid"),
 		Date: time.Now(),
 	}
-	if (newAlertMethod.Email || r.FormValue("address") != "") {
+	if (r.FormValue("address") != "") {
 		newAlertMethod.Address = r.FormValue("address")
 	}
-	if (newAlertMethod.Sms || r.FormValue("phonenumber") != "") {
+	if (r.FormValue("phonenumber") != "") {
 		newAlertMethod.Phonenumber = r.FormValue("phonenumber")
 		if newAlertMethod.Phonenumber != "" && newAlertMethod.Phonenumber[0] != '1' {
 			newAlertMethod.Phonenumber = "1" + newAlertMethod.Phonenumber
@@ -223,6 +223,13 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		// Save the previous email & phone number
+		if newAlertMethod.Address == "" && x.Address != "" {
+			newAlertMethod.Address = x.Address
+		}
+		if newAlertMethod.Phonenumber == "" && x.Phonenumber != "" {
+			newAlertMethod.Phonenumber = x.Phonenumber
 		}
 		err = datastore.Delete(c, key)
 		if err != nil {
