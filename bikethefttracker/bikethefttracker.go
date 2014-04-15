@@ -101,22 +101,22 @@ func SetLocation(w http.ResponseWriter, r *http.Request) {
 		clientid = "00000000"
 	}
 	
-	// Add points to datastore for user
-	newlocation := &Location{
-		X: r.FormValue("x"), 
-		Y: r.FormValue("y"),
-		Clientid: clientid,
-		Date: time.Now(),
+	if r.FormValue("x") != "" && r.FormValue("y") != "" {
+		// Add points to datastore for user
+		newlocation := &Location{
+			X: r.FormValue("x"), 
+			Y: r.FormValue("y"),
+			Clientid: clientid,
+			Date: time.Now(),
+		}
+	
+		// format: datastore.NewIncompleteKey(context, "subkind", *parentKey)
+		key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
+	    if _, err := datastore.Put(c, key, newlocation); err != nil {
+	        http.Error(w, err.Error(), http.StatusInternalServerError)
+			c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
+	    }
 	}
-	
-	
-	
-	// format: datastore.NewIncompleteKey(context, "subkind", *parentKey)
-	key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
-    if _, err := datastore.Put(c, key, newlocation); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-		c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
-    }
 	
 	if r.FormValue("stolen") != "1" {
 		return
@@ -271,15 +271,15 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	
 	message := r.FormValue("Body")
 	if message != "" {
-		c.Infof("Twilio SMS: ", message)
+		c.Infof("Twilio SMS: %v", message)
 	} else {
-		c.Errorf("message is empty")
+		c.Errorf("Twilio message is empty")
 		return
 	}
 	
 	// Account for bug in firmware/GSM module
 	if message[0] != '{' && message[len(message) - 1] != '}' {
-		c.Infof("Braces added for command.")
+		//c.Infof("Braces added for command.")
 		message = "{" + message + "}"
 	}
 	
@@ -287,19 +287,25 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 	
 	var jsonmap map[string]interface{}
 	if err := json.Unmarshal(messagedata, &jsonmap); err != nil {
-		c.Errorf("Error parsing JSON from GSM: ", messagedata)
+		c.Errorf("Error parsing JSON from GSM: %v", messagedata)
 		return
 	}
 	
+	if jsonmap["stolen"].(string) == "0" {
+		// Not stolen
+		return
+	}
+	// Module is stolen
 	
 	// Convert degree coordinates to decimal coordinates
 	x_str := _ConvertCoordinate(jsonmap["x"].(string), jsonmap["xm"].(string))
 	y_str := _ConvertCoordinate(jsonmap["y"].(string), jsonmap["ym"].(string))
 	if x_str == "error" || y_str == "error" {
-		c.Errorf("String(s) not converted to or from float: ", 
-			jsonmap["x"].(string), " ", jsonmap["xm"].(string), " ", 
-			jsonmap["y"].(string), " ", jsonmap["ym"].(string))
-		return
+		c.Warningf("String(s) not converted to or from float: %v :: %v :: %v :: %v", 
+			jsonmap["x"].(string), jsonmap["xm"].(string), 
+			jsonmap["y"].(string), jsonmap["ym"].(string))
+		x_str = ""
+		y_str = ""
 	}
 	
 	/*x := jsonmap["x"].(float64)
@@ -316,19 +322,22 @@ func TwilioRequest(w http.ResponseWriter, r *http.Request) {
 		clientid = "00000000"	// This will only occur in the development version
 	}
 	
-	newlocation := &Location{
-		X: x_str, 
-		Y: y_str,
-		Clientid: clientid,
-		Date: time.Now(),
-	}
+	// Only add if valid location data was provided
+	if x_str != "" && y_str != "" {
+		newlocation := &Location{
+			X: x_str, 
+			Y: y_str,
+			Clientid: clientid,
+			Date: time.Now(),
+		}
 	
-	// format: datastore.NewIncompleteKey(context, "subkind", *parentKey)
-	key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
-    if _, err := datastore.Put(c, key, newlocation); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-		c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
-    }
+		// format: datastore.NewIncompleteKey(context, "subkind", *parentKey)
+		key := datastore.NewIncompleteKey(c, "Location", ParentKey(c))
+	    if _, err := datastore.Put(c, key, newlocation); err != nil {
+	        http.Error(w, err.Error(), http.StatusInternalServerError)
+			c.Errorf("Error adding new location for clientid: ", clientid, "; Error: ", err.Error())
+	    }
+	}
 	
 	// Get the client's theft notification preferences
 	clientprefs := _GetClientAlertPrefs(c, w, r, clientid)
@@ -556,6 +565,10 @@ func _ConvertCoordinate(deg string, min string) (string) {
 	var coord_min float64
 	var err1 error
 	var err2 error
+	
+	if deg == "" || min == "" {
+		return "error"
+	}
 	
 	coord, err1     = strconv.ParseFloat(deg, 64)
 	coord_min, err2 = strconv.ParseFloat(min, 64)
