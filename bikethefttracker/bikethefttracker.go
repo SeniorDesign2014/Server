@@ -81,6 +81,7 @@ func init() {
     http.HandleFunc("/setlocation", SetLocation)
     http.HandleFunc("/addclient", AddClient)
     http.HandleFunc("/updateclient", UpdateClient)
+    http.HandleFunc("/getpreferences", GetPreferences)
 	http.HandleFunc("/twiliorequest", TwilioRequest)
 	http.HandleFunc("/setpushtoken", SetPushToken)
 }
@@ -247,6 +248,37 @@ func UpdateClient(w http.ResponseWriter, r *http.Request) {
 		c.Errorf("Database error adding preferences for client: ", newAlertMethod.Clientid)
 		return
     }
+}
+
+func GetPreferences(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	
+	// Retrieve the data of the client requested by the app
+	clientid := r.FormValue("clientid")
+	if clientid == "" {
+		// This will only occur in the development version
+		clientid = "00000000"
+	}
+	
+	// --- Request user preferences for this user ID ---
+	
+	query := datastore.NewQuery("AlertMethod").Ancestor(ParentKey(c)).Filter("Clientid =", clientid).Order("-Date").Limit(500)
+	prefs := make([]AlertMethod, 0, 10)
+	if _, err := query.GetAll(c, &prefs); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+	
+	// Respond to the HTML request with JSON-formatted preferences
+	if preferencebytes, err := json.Marshal(prefs); err != nil {
+		fmt.Fprint(w, "Oops - something went wrong with the JSON. \n")
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("Something went wrong with the user preference retrieval JSON.  Error: %v", err.Error())
+		return
+	} else {
+		fmt.Fprint(w, string(preferencebytes))	// Print locations in date-descending order as a JSON array
+		return
+	}
 }
 
 /*
